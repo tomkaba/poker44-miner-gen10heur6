@@ -1703,6 +1703,66 @@ def score_chunk_gen7heur5(chunk: List[dict]) -> Tuple[float, str]:
     return score, route.replace("gen7heur1", "gen7heur5")
 
 
+_GEN7HEUR9_PROFILE: Optional[dict] = None
+
+
+def _load_gen7heur9_profile() -> dict:
+    global _GEN7HEUR9_PROFILE
+    if _GEN7HEUR9_PROFILE is not None:
+        return _GEN7HEUR9_PROFILE
+    env_path = os.getenv("POKER44_GEN7HEUR9_PROFILE", "")
+    if env_path:
+        profile_path = Path(env_path)
+    else:
+        profile_path = Path(__file__).resolve().parents[1] / "models" / "benchmark_heuristic_profile.json"
+    import json as _json
+    with open(profile_path, "r", encoding="utf-8") as _f:
+        _GEN7HEUR9_PROFILE = _json.load(_f)
+    return _GEN7HEUR9_PROFILE
+
+
+def score_chunk_gen7heur9(chunk: List[dict]) -> Tuple[float, str]:
+    """Score a chunk with the gen7heur9 profile (same math as gen7heur1)."""
+    if not chunk:
+        return 0.5, "gen7heur9_empty"
+
+    try:
+        profile = _load_gen7heur9_profile()
+    except Exception:
+        return 0.5, "gen7heur9_profile_load_error"
+
+    features = _gen7heur1_extract_features(chunk)
+    weights = profile["weights"]
+    stats = profile["class_stats"]
+
+    raw = 0.0
+    for feat in profile["feature_names"]:
+        w = float(weights.get(feat, 0.0))
+        if w == 0.0:
+            continue
+        mu_h = float(stats["human"][feat]["mean"])
+        mu_b = float(stats["bot"][feat]["mean"])
+        sd_h = float(stats["human"][feat]["std"])
+        sd_b = float(stats["bot"][feat]["std"])
+        midpoint = 0.5 * (mu_h + mu_b)
+        pooled = math.sqrt((sd_h * sd_h + sd_b * sd_b) / 2.0) + _EPS_G7
+        z = (float(features.get(feat, midpoint)) - midpoint) / pooled
+        raw += w * z
+
+    risk = _sigmoid_g7(raw)
+
+    smin = float(profile["score_logic"].get("chunk_size_min", 40))
+    smax = float(profile["score_logic"].get("chunk_size_max", 80))
+    cmin = float(profile["score_logic"].get("chunk_confidence_min", 0.65))
+    cmax = float(profile["score_logic"].get("chunk_confidence_max", 1.0))
+    size = float(features.get("chunk_size", smin))
+    alpha = max(0.0, min(1.0, (size - smin) / max(_EPS_G7, smax - smin)))
+    confidence = cmin + (cmax - cmin) * alpha
+
+    score = 0.5 + (risk - 0.5) * confidence
+    return round(max(0.0, min(1.0, score)), 6), "gen7heur9"
+
+
 
 
 def score_chunks_gen7heur6(chunks: List[List[dict]]) -> Tuple[List[float], List[str], Dict[str, int]]:
@@ -1783,7 +1843,7 @@ def get_chunk_scorer_startup_check(scorer: str) -> Dict[str, object]:
     }
 
     if scorer_norm in {"gen7heur6"}:
-        env_path = os.getenv("POKER44_GEN7HEUR1_PROFILE", "")
+        env_path = os.getenv("POKER44_GEN7HEUR9_PROFILE", "")
         profile_path = (
             Path(env_path)
             if env_path
@@ -1792,11 +1852,11 @@ def get_chunk_scorer_startup_check(scorer: str) -> Dict[str, object]:
         details = {
             "profile_path": str(profile_path),
             "profile_exists": profile_path.exists(),
-            "rebalance_target": "50/50" if scorer_norm == "gen7heur6" else "disabled",
+            "rebalance_target": "disabled",
         }
         info["details"] = details
         try:
-            _load_gen7heur1_profile()
+            _load_gen7heur9_profile()
         except Exception as exc:
             info["ok"] = False
             info["error"] = str(exc)
