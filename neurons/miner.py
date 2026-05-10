@@ -127,11 +127,11 @@ class Miner(BaseMinerNeuron):
         self.recent_scores.extend(scores)
 
         if len(self.recent_scores) < 3:
-            threshold = 0.44
+            threshold = 0.5
         else:
             threshold = statistics.quantiles(list(self.recent_scores), n=20)[12]
 
-        return max(0.42, min(0.46, threshold))
+        return max(0.44, min(0.56, threshold))
 
     def _log_manifest_startup(self, repo_root: Path) -> None:
         bt.logging.info(
