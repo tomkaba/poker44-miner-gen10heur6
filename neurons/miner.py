@@ -175,6 +175,7 @@ class Miner(BaseMinerNeuron):
         threshold = self._get_dynamic_threshold(scores)
         synapse.predictions = [s >= threshold for s in scores]
         synapse.model_manifest = dict(self.model_manifest)
+        bt.logging.info(f"[miner] Response manifest={synapse.model_manifest}")
 
         bt.logging.debug(
             f"[DEBUG] Before sending: synapse.risk_scores={synapse.risk_scores}, "
